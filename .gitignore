@@ -1,0 +1,20 @@
+# Credentials — NEVER commit passwords or progress data
+*.json
+passwords.*
+progress.*
+.bandit/
+
+# Container build artifacts
+.containerignore
+
+# Editor
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Shell history (may appear inside container mounts)
+.bash_history

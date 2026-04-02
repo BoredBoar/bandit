@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# bandit — cross-platform CLI for OverTheWire's Bandit wargame
+# https://overthewire.org/wargames/bandit/
+#
+# Usage:  ./bandit <command> [args...]
+# Run     ./bandit help  for a full command reference.
+
+set -euo pipefail
+
+BANDIT_VERSION="0.1.0"
+
+# Resolve the directory containing this script (works when symlinked)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source library modules
+# shellcheck source=lib/colors.sh
+source "$SCRIPT_DIR/lib/colors.sh"
+# shellcheck source=lib/config.sh
+source "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/ui.sh
+source "$SCRIPT_DIR/lib/ui.sh"
+# shellcheck source=lib/container.sh
+source "$SCRIPT_DIR/lib/container.sh"
+# shellcheck source=lib/ssh.sh
+source "$SCRIPT_DIR/lib/ssh.sh"
+
+# ---------------------------------------------------------------------------
+# Helper: validate that <level> is a number in range 0–33
+# ---------------------------------------------------------------------------
+require_level() {
+    local level="$1"
+    if ! [[ "$level" =~ ^[0-9]+$ ]] || (( level < 0 || level > 33 )); then
+        ui_error "Level must be a number between 0 and 33 (got: '$level')"
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+cmd_init() {
+    ui_banner
+    config_init
+    container_build
+    ui_success "Bandit environment is ready. Run: ./bandit connect 0"
+}
+
+cmd_connect() {
+    if [[ $# -lt 1 ]]; then
+        ui_error "Usage: bandit connect <level>"
+        exit 1
+    fi
+    local level="$1"
+    require_level "$level"
+
+    local password
+    password="$(ssh_get_password "$level")"
+    ssh_connect "$level" "$password"
+}
+
+cmd_save() {
+    if [[ $# -lt 2 ]]; then
+        ui_error "Usage: bandit save <level> <password>"
+        exit 1
+    fi
+    local level="$1"
+    local password="$2"
+    require_level "$level"
+
+    config_set_password "$level" "$password"
+    config_mark_done "$level"
+    ui_success "Password for level ${level} saved."
+}
+
+cmd_status() {
+    config_init
+    ui_status_table
+}
+
+cmd_info() {
+    if [[ $# -lt 1 ]]; then
+        ui_error "Usage: bandit info <level>"
+        exit 1
+    fi
+    local level="$1"
+    require_level "$level"
+    config_init
+    ui_level_info "$level"
+}
+
+cmd_note() {
+    if [[ $# -lt 2 ]]; then
+        ui_error "Usage: bandit note <level> <text>"
+        exit 1
+    fi
+    local level="$1"
+    shift
+    local note="$*"
+    require_level "$level"
+    config_init
+    config_add_note "$level" "$note"
+    ui_success "Note saved for level ${level}."
+}
+
+cmd_run() {
+    if [[ $# -lt 1 ]]; then
+        ui_error "Usage: bandit run <command> [args...]"
+        exit 1
+    fi
+    container_ensure_built
+    container_run "$@"
+}
+
+cmd_shell() {
+    container_ensure_built
+    ui_info "Opening container shell. Type 'exit' to return."
+    container_run /bin/bash
+}
+
+cmd_reset() {
+    if ui_confirm "This will delete all saved passwords and progress. Continue?"; then
+        rm -rf "$BANDIT_DATA_DIR"
+        ui_success "Data directory removed: $BANDIT_DATA_DIR"
+    else
+        ui_info "Cancelled."
+    fi
+}
+
+cmd_version() {
+    printf "bandit %s\n" "$BANDIT_VERSION"
+}
+
+cmd_help() {
+    ui_banner
+    printf "${BOLD}Commands:${RESET}\n\n"
+    printf "  ${CYAN}init${RESET}                   Build the container image (first-time setup)\n"
+    printf "  ${CYAN}connect${RESET} <level>        Connect to a level via SSH\n"
+    printf "  ${CYAN}save${RESET} <level> <pass>    Save a level's password locally\n"
+    printf "  ${CYAN}status${RESET}                 Show progress across all levels\n"
+    printf "  ${CYAN}info${RESET} <level>           Show stored info for a level\n"
+    printf "  ${CYAN}note${RESET} <level> <text>    Attach a note to a level\n"
+    printf "  ${CYAN}run${RESET} <cmd> [args...]    Run a command inside the container\n"
+    printf "  ${CYAN}shell${RESET}                  Open an interactive container shell\n"
+    printf "  ${CYAN}reset${RESET}                  Wipe all locally stored passwords and progress\n"
+    printf "  ${CYAN}version${RESET}                Print the version\n"
+    printf "  ${CYAN}help${RESET}                   Show this help text\n"
+    printf "\n${BOLD}Examples:${RESET}\n\n"
+    printf "  ./bandit init\n"
+    printf "  ./bandit connect 0\n"
+    printf "  ./bandit save 1 <password-you-found>\n"
+    printf "  ./bandit status\n"
+    printf "  ./bandit shell\n"
+    printf "\n${DIM}Passwords are stored in: ~/.local/share/bandit/${RESET}\n\n"
+}
+
+# ---------------------------------------------------------------------------
+# Subcommand dispatch
+# ---------------------------------------------------------------------------
+
+if [[ $# -eq 0 ]]; then
+    cmd_help
+    exit 0
+fi
+
+subcommand="$1"
+shift
+
+case "$subcommand" in
+    init)    cmd_init "$@" ;;
+    connect) cmd_connect "$@" ;;
+    save)    cmd_save "$@" ;;
+    status)  cmd_status "$@" ;;
+    info)    cmd_info "$@" ;;
+    note)    cmd_note "$@" ;;
+    run)     cmd_run "$@" ;;
+    shell)   cmd_shell "$@" ;;
+    reset)   cmd_reset "$@" ;;
+    version) cmd_version "$@" ;;
+    help|-h|--help) cmd_help "$@" ;;
+    *)
+        ui_error "Unknown command: '${subcommand}'. Run './bandit help' for usage."
+        exit 1
+        ;;
+esac
