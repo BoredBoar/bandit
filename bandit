@@ -69,7 +69,10 @@ cmd_save() {
     require_level "$level"
 
     config_set_password "$level" "$password"
-    config_mark_done "$level"
+    # Saving the password for level N means level N-1 was completed
+    if [[ $level -gt 0 ]]; then
+        config_mark_done "$(( level - 1 ))"
+    fi
     ui_success "Password for level ${level} saved."
 }
 

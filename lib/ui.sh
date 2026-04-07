@@ -50,20 +50,31 @@ ui_status_table() {
     printf "%s\n" "$separator"
 
     for i in $(seq 0 $((BANDIT_LEVEL_COUNT - 1))); do
-        local pw date_str status_str
-        pw="$(config_get_password "$i")"
-        local progress
-        progress="$(config_get_progress "$i")"
-        date_str="$(echo "$progress" | jq -r '.completed_at // empty' 2>/dev/null | cut -c1-10)"
+        local status_str date_str
+        # Level i is complete when the password for the next level has been saved,
+        # since finding that password is proof level i was solved.
+        local next_pw
+        next_pw="$(config_get_password "$(( i + 1 ))")"
 
-        if [[ -n "$pw" ]]; then
+        if [[ -n "$next_pw" ]]; then
             status_str="${GREEN}[DONE]${RESET}"
             ((completed++)) || true
+            # Date comes from progress.json if recorded.
+            # Fallback to progress[N+1] for data saved before the off-by-one fix.
+            local progress done_at
+            progress="$(config_get_progress "$i")"
+            done_at="$(echo "$progress" | jq -r '.completed_at // empty' 2>/dev/null)"
+            if [[ -z "$done_at" ]]; then
+                progress="$(config_get_progress "$(( i + 1 ))")"
+                done_at="$(echo "$progress" | jq -r '.completed_at // empty' 2>/dev/null)"
+            fi
+            date_str="${done_at:0:10}"
         else
             status_str="${DIM}[    ]${RESET}"
+            date_str=""
         fi
 
-        printf "  Level %02d  %b  %s\n" "$i" "$status_str" "${date_str:-}"
+        printf "  Level %02d  %s  %s\n" "$i" "$status_str" "${date_str:-}"
     done
 
     printf "%s\n" "$separator"
